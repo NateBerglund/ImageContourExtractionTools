@@ -81,9 +81,51 @@ while (nextEx ~= startX  || nextEy ~= startY)
   endif
 end
 
-edgeYs = edgeYs + 0.5;
-edgeXs = edgeXs + 0.5;
+% Simplify runs of vertices that are all in a straight line
+inALine = false;
+startIdx = 0;
+endIdx = 0;
+idx = 3;
+while (idx <= numel(edgeXs) || inALine) % we check inALine to allow "wrap around"
+  
+  % adjust idx as necessary so it is within bounds
+  wrappedIdx = mod(idx - 1, numel(edgeXs)) + 1;
+  
+  % will this current point be in a line of at least 3 points?
+  willBeInALine = ...
+    (edgeXs(wrappedIdx) - edgeXs(wrappedIdx-1) == edgeXs(wrappedIdx-1) - edgeXs(wrappedIdx-2) &&...
+     edgeYs(wrappedIdx) - edgeYs(wrappedIdx-1) == edgeYs(wrappedIdx-1) - edgeYs(wrappedIdx-2));
+     
+  if (~inALine && willBeInALine) % starting a line
+    startIdx = idx - 2;
+    inALine = true;
+  endif
+  
+  if (inALine && ~willBeInALine) % ending a line
+    endIdx = idx - 1;
+    inALine = false;
+    
+    % How many points we need to remove
+    countToRemove = endIdx - startIdx - 1;
+    
+    % adjust endIdx so it is within bounds (do this after computing countToRemove)
+    endIdx = mod(endIdx - 1, numel(edgeXs)) + 1;
+    
+    % Circularly rotate the arrays so the final point of the line will be at index 1.
+    edgeXs = [edgeXs(endIdx:end); edgeXs(1:endIdx-1)];
+    edgeYs = [edgeYs(endIdx:end); edgeYs(1:endIdx-1)];
+    
+    % Now we just have to remove the last countToRemove points
+    edgeXs = edgeXs(1:end-countToRemove);
+    edgeYs = edgeYs(1:end-countToRemove);
+    
+    idx = 2; % adjust the index (the point we just examined is now at index 2)
+  endif
+  
+  idx = idx + 1; % increment the index
+end
 
+% Display the plot
 imshow(Image);
 hold on
-plot(edgeXs, edgeYs, 'r-', 'linewidth', 2);
+plot([edgeXs; edgeXs(1)] + 0.5, [edgeYs; edgeYs(1)] + 0.5, 'r-', 'linewidth', 2);
