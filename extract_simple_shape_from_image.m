@@ -2,6 +2,8 @@ clear all
 close all
 clc
 
+epsilon = 0.05;
+
 Image = imread('mod6.bmp');
 dy1 = [diff(Image, 1, 1); zeros(1, size(Image,2))];
 dy2 = [dy1(:,2:end) zeros(size(Image,1), 1)];
@@ -124,6 +126,60 @@ while (idx <= numel(edgeXs) || inALine) % we check inALine to allow "wrap around
   
   idx = idx + 1; % increment the index
 end
+
+% ----- Remove "jaggies" by collapsing any edges of length 1 -----
+
+% First, create doubly-sized arrays with an extra element in between each
+% pair of vertices to (potentially) store the new vertex along the edge between
+% them.
+n = numel(edgeXs);
+newEdgeXs = zeros(2 * n, 1);
+newEdgeYs = zeros(2 * n, 1);
+includeMask = zeros(2 * n, 1, 'logical');
+includeMask(1:2:end) = true;
+newEdgeXs(1:2:end) = edgeXs;
+newEdgeYs(1:2:end) = edgeYs;
+% Next, initialize some variables that need to be set before the first
+% iteration of the loop
+isPriorEdgeExtremal = false;
+isCurrentEdgeExtremal = ...
+  [edgeXs(end-1)-edgeXs(end-2) edgeYs(end-1)-edgeYs(end-2)] * ...
+  [edgeXs(end)-edgeXs(1); edgeYs(end)-edgeYs(1)] > epsilon; 
+isNextEdgeExtremal = ...
+  [edgeXs(end)-edgeXs(end-1) edgeYs(end)-edgeYs(end-1)] * ...
+  [edgeXs(1)-edgeXs(2); edgeYs(1)-edgeYs(2)] > epsilon;
+% Main loop to identify edges to collapse
+for idx = 1:n
+  isPriorEdgeExtremal = isCurrentEdgeExtremal;
+  isCurrentEdgeExtremal = isNextEdgeExtremal; 
+  isNextEdgeExtremal = ...
+      [edgeXs(idx)-edgeXs(mod(idx-2,n)+1) ...
+       edgeYs(idx)-edgeYs(mod(idx-2,n)+1)] * ...
+      [edgeXs(mod(idx,n)+1)-edgeXs(mod(idx+1,n)+1); ...
+       edgeYs(mod(idx,n)+1)-edgeYs(mod(idx+1,n)+1)] > epsilon;
+  % Is the edge between the previous and current vertex length 1?
+  if (abs(sqrt((edgeXs(idx)-edgeXs(mod(idx-2,n)+1))^2 +
+               (edgeYs(idx)-edgeYs(mod(idx-2,n)+1))^2) - 1) ...
+               < epsilon && ~isCurrentEdgeExtremal)
+    middleIdx = 2*(idx-1); % index of the "middle of the edge" in the doubly-sized arrays
+    if (isPriorEdgeExtremal && ~isNextEdgeExtremal) % favor the prior vertex if only the prior edge was extremal
+      newEdgeXs(middleIdx) = edgeXs(idx-1);
+      newEdgeYs(middleIdx) = edgeYs(idx-1);
+    elseif (~isPriorEdgeExtremal && isNextEdgeExtremal) % favor the current vertex if only the next edge is extremal
+      newEdgeXs(middleIdx) = edgeXs(idx);
+      newEdgeYs(middleIdx) = edgeYs(idx);
+    else % Take the average of the prior and current vertices in all other cases
+      newEdgeXs(middleIdx) = 0.5 * (edgeXs(idx-1) + edgeXs(idx));
+      newEdgeYs(middleIdx) = 0.5 * (edgeYs(idx-1) + edgeYs(idx));
+    endif
+    % Include the new vertex in the middle but not the vertices at the endpoints
+    includeMask(middleIdx-1) = false;
+    includeMask(middleIdx) = true;
+    includeMask(middleIdx+1) = false;
+  endif
+end
+edgeXs = newEdgeXs(includeMask);
+edgeYs = newEdgeYs(includeMask);
 
 % Display the plot
 imshow(Image);
