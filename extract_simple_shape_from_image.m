@@ -81,7 +81,7 @@ while (nextEx ~= startX  || nextEy ~= startY)
   else
     break;
   endif
-end
+endwhile
 
 % Simplify runs of vertices that are all in a straight line
 inALine = false;
@@ -125,7 +125,7 @@ while (idx <= numel(edgeXs) || inALine) % we check inALine to allow "wrap around
   endif
   
   idx = idx + 1; % increment the index
-end
+endwhile
 
 % ----- Remove "jaggies" by collapsing any edges of length 1 -----
 
@@ -177,11 +177,87 @@ for idx = 1:n
     includeMask(middleIdx) = true;
     includeMask(middleIdx+1) = false;
   endif
-end
+endfor
 edgeXs = newEdgeXs(includeMask);
 edgeYs = newEdgeYs(includeMask);
+
+% ----- Resample the curve about once per pixel of length (will make our Taubin smoothing work better) -----
+
+n = numel(edgeXs);
+polygonLength = 0;
+for idx = 1:n
+  % Add the length of the edge between the current and next vertex
+  polygonLength = polygonLength + ...
+    sqrt((edgeXs(mod(idx,n)+1)-edgeXs(idx))^2 + ...
+         (edgeYs(mod(idx,n)+1)-edgeYs(idx))^2);
+endfor
+polygonLength = polygonLength + epsilon;
+edgUnit = polygonLength / round(polygonLength); % approximately 1 pixel
+
+newEdges = [edgeXs(1); edgeYs(1)];
+distanceRemaining = edgUnit;
+for idx = 1:n
+  % Add the length of the edge between the current and next vertex
+  edgeLen = sqrt((edgeXs(mod(idx,n)+1)-edgeXs(idx))^2 + ...
+                 (edgeYs(mod(idx,n)+1)-edgeYs(idx))^2);
+  edgeUnitVec = [edgeXs(mod(idx,n)+1)-edgeXs(idx); ...
+                 edgeYs(mod(idx,n)+1)-edgeYs(idx)] / edgeLen;
+  
+  currentVertex = [edgeXs(idx); edgeYs(idx)];
+  edgeLenOffset = 0; % offset along the original edge
+  while (edgeLenOffset < edgeLen)
+    if (distanceRemaining > 0)
+      if (distanceRemaining < edgeLen)
+        edgeLenOffset = distanceRemaining;
+        newEdges = [newEdges currentVertex + edgeLenOffset * edgeUnitVec];
+        distanceRemaining = 0;
+      else
+        edgeLenOffset = edgeLen;
+        distanceRemaining = distanceRemaining - edgeLen;
+        break;
+      endif
+    endif
+    if (edgeLenOffset + edgUnit < edgeLen)
+      edgeLenOffset = edgeLenOffset + edgUnit;   
+      newEdges = [newEdges currentVertex + edgeLenOffset * edgeUnitVec];
+    else
+      distanceRemaining = edgeLenOffset + edgUnit - edgeLen;
+      break;
+    endif
+  endwhile
+endfor
+
+%debugging
+edgUnit
+maxDeviation = max(abs(sqrt(sum(diff(newEdges,1,2).^2,1))-edgUnit))
+
+% ----- Run Taubin smoothing, but fixing vertices likely to be corners -----
+
+lambda = 0.5;
+mu = -0.51;
+n = size(newEdges, 2);
+
+fixedPoints = ...
+  sum(([newEdges(:,2:end) newEdges(:,1)] - newEdges) .* ...
+      ([newEdges(:,end) newEdges(:,1:end-1)] - newEdges), 1) > ...
+      sqrt(sum(([newEdges(:,2:end) newEdges(:,1)] - newEdges).^2, 1)) .* ...
+      sqrt(sum(([newEdges(:,end) newEdges(:,1:end-1)] - newEdges).^2, 1)) * ...
+      (-0.8); % angle must be more acute than arccos(-0.8) ~= 143 degrees
+
+coeffs = [lambda; mu];
+for iter = 1:100
+  convolvedEdges = (1/3)*newEdges + ...
+                   (1/3)*[newEdges(:,2:end) newEdges(:,1)] + ...
+                   (1/3)*[newEdges(:,end) newEdges(:,1:end-1)];
+  displacements = convolvedEdges - newEdges;
+  coeff = coeffs(mod(iter-1,2)+1);
+  newEdges(:,~fixedPoints) = newEdges(:,~fixedPoints) + coeff * displacements(:,~fixedPoints);
+endfor
 
 % Display the plot
 imshow(Image);
 hold on
-plot([edgeXs; edgeXs(1)] + 0.5, [edgeYs; edgeYs(1)] + 0.5, 'r-', 'linewidth', 2);
+plot([newEdges(1,:) newEdges(1,1)] + 0.5, [newEdges(2,:) newEdges(2,1)] + 0.5, 'r-', 'linewidth', 2);
+plot(newEdges(1,fixedPoints) + 0.5, newEdges(2,fixedPoints) + 0.5, 'bo', 'markersize', 10);
+
+csvwrite('border_polygon.csv', newEdges');
