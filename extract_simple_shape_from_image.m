@@ -2,6 +2,7 @@ clear all
 close all
 clc
 
+ppmm = 11.811; % pixels per mm
 epsilon = 0.05;
 
 Image = imread('mod6.bmp');
@@ -260,4 +261,4 @@ hold on
 plot([newEdges(1,:) newEdges(1,1)] + 0.5, [newEdges(2,:) newEdges(2,1)] + 0.5, 'r-', 'linewidth', 2);
 plot(newEdges(1,fixedPoints) + 0.5, newEdges(2,fixedPoints) + 0.5, 'bo', 'markersize', 10);
 
-csvwrite('border_polygon.csv', newEdges');
+csvwrite('border_polygon.csv', newEdges' / ppmm);
