@@ -1,8 +1,10 @@
 clear all
 close all
 clc
+pkg load geometry
+pkg load msh
 
-extrusion_height = 1.0;
+extrusion_height = 3.0;
 
 polygon = csvread('border_polygon.csv');
 polygon(:,2) = 500-polygon(:,2); % compensate for the original being in image coords
@@ -37,12 +39,38 @@ endfor
 
 % TODO: Figure out the hard part, which is to triangulate the polygon's interior
 
+% Keep around until you implement, as this may be needed for prettier visualization:
 %% Orientation flip
 %temp = vertices(1:3:end,:);
 %vertices(1:3:end,:) = vertices(2:3:end,:);
 %vertices(2:3:end,:) = temp;
 
+fprintf(fid, 'endsolid extruded_polygon\n');
 fclose(fid)
+
+% The following is a temporary workaround using the gmsh application:
+
+filename = "mesh";
+meshsize = sqrt(mean(sumsq(diff(polygon, 1, 1), 2)))/2;
+data2geo(polygon, meshsize, "output", [filename ".geo"]);
+% Note: The msh package's 'msh2m_gmsh' function appears to be broken, so instead
+% you will need to run gmsh manually with a command similar to:
+% gmsh -format msh -2 -o mesh.msh mesh.geo 2>&1
+%
+% Then you'll need to open mesh.msh in gmsh and export it as an stl.
+%
+% Finally, make a copy of the stl and edit it in Notepad++, doing a find and
+% replace of " 0\r\n" with " 3\r\n" (Extended mode) -- make the '3' in the
+% example whatever extrusion_height is. Be patient as the file may be millions
+% of lines of text long and it may take Notepad++ a long time to do this, but
+% it will eventually finish.
+%
+% Finally, manually combine extruded_polygon.stl, mesh.stl, mesh_copy.stl in
+% a text editor such as Notepad++, to produce the final full stil file.
+%
+% Note: The file size produced this way is much larger than it needs to be, so
+% I really want to implement a better polygon triangulation algorithm in
+% Matlab/Octave (or find one I can modify/re-use).
 
 % Display the plot
 hold on
