@@ -1,8 +1,8 @@
 clear all
 close all
 clc
-pkg load geometry
-pkg load msh
+%pkg load geometry
+%pkg load msh
 
 extrusion_height = 3.0;
 
@@ -50,9 +50,9 @@ fclose(fid)
 
 % The following is a temporary workaround using the gmsh application:
 
-filename = "mesh";
-meshsize = sqrt(mean(sumsq(diff(polygon, 1, 1), 2)))/2;
-data2geo(polygon, meshsize, "output", [filename ".geo"]);
+%filename = "mesh";
+%meshsize = sqrt(mean(sumsq(diff(polygon, 1, 1), 2)))/2;
+%data2geo(polygon, meshsize, "output", [filename ".geo"]);
 % Note: The msh package's 'msh2m_gmsh' function appears to be broken, so instead
 % you will need to run gmsh manually with a command similar to:
 % gmsh -format msh -2 -o mesh.msh mesh.geo 2>&1

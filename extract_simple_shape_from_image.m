@@ -183,6 +183,15 @@ edgeXs = newEdgeXs(includeMask);
 edgeYs = newEdgeYs(includeMask);
 
 % ----- Resample the curve about once per pixel of length (will make our Taubin smoothing work better) -----
+% Do the resampling in a way that will respect "corners", however.
+
+newEdges = [edgeXs'; edgeYs'];
+fixedPoints = ...
+  sum(([newEdges(:,2:end) newEdges(:,1)] - newEdges) .* ...
+      ([newEdges(:,end) newEdges(:,1:end-1)] - newEdges), 1) > ...
+      sqrt(sum(([newEdges(:,2:end) newEdges(:,1)] - newEdges).^2, 1)) .* ...
+      sqrt(sum(([newEdges(:,end) newEdges(:,1:end-1)] - newEdges).^2, 1)) * ...
+      (-0.8); % angle must be more acute than arccos(-0.8) ~= 143 degrees
 
 n = numel(edgeXs);
 polygonLength = 0;
@@ -195,56 +204,79 @@ endfor
 polygonLength = polygonLength + epsilon;
 edgUnit = polygonLength / round(polygonLength); % approximately 1 pixel
 
-newEdges = [edgeXs(1); edgeYs(1)];
-distanceRemaining = edgUnit;
-for idx = 1:n
-  % Add the length of the edge between the current and next vertex
-  edgeLen = sqrt((edgeXs(mod(idx,n)+1)-edgeXs(idx))^2 + ...
-                 (edgeYs(mod(idx,n)+1)-edgeYs(idx))^2);
-  edgeUnitVec = [edgeXs(mod(idx,n)+1)-edgeXs(idx); ...
-                 edgeYs(mod(idx,n)+1)-edgeYs(idx)] / edgeLen;
+fixedPointIndices = find(fixedPoints);
+if numel(fixedPointIndices) > 0
+  % Circularly rotate the points so that they start at a fixed point
+  edgeXs = [edgeXs(fixedPointIndices(1):end); edgeXs(1:fixedPointIndices(1)-1)];
+  edgeYs = [edgeYs(fixedPointIndices(1):end); edgeYs(1:fixedPointIndices(1)-1)];
+  fixedPointIndices = fixedPointIndices - fixedPointIndices(1) + 1;
+else
+  fixedPointIndices = 1; % treat the first point as if it were a fixed point
+endif
+fixedPointIndices = [fixedPointIndices n+1]; % "wrap around"
+
+newEdges = zeros(2,0);
+fixedPoints = zeros(1,0,'logical');
+for fpIdx = 1:numel(fixedPointIndices)-1
+  % Add the fixed-point vertex as-is
+  newEdges = [newEdges [edgeXs(fixedPointIndices(fpIdx)); ...
+                        edgeYs(fixedPointIndices(fpIdx))]];
+  fixedPoints = [fixedPoints; true];
   
-  currentVertex = [edgeXs(idx); edgeYs(idx)];
-  edgeLenOffset = 0; % offset along the original edge
-  while (edgeLenOffset < edgeLen)
-    if (distanceRemaining > 0)
-      if (distanceRemaining < edgeLen)
-        edgeLenOffset = distanceRemaining;
+  % Delete the previous vertex if this will produce an edge of length < 0.5 * edgUnit
+  if (size(newEdges,2) > 1 && ...
+    sqrt((newEdges(1,end)-newEdges(1,end-1))^2 + ...
+         (newEdges(2,end)-newEdges(2,end-1))^2) < 0.5 * edgUnit)
+    newEdges(:,end-1) = [];
+    fixedPoints(end-1) = [];
+  endif
+  
+  distanceRemaining = edgUnit;
+  for idx = fixedPointIndices(fpIdx):fixedPointIndices(fpIdx+1)-1
+    % Add the length of the edge between the current and next vertex
+    edgeLen = sqrt((edgeXs(mod(idx,n)+1)-edgeXs(idx))^2 + ...
+                   (edgeYs(mod(idx,n)+1)-edgeYs(idx))^2);
+    edgeUnitVec = [edgeXs(mod(idx,n)+1)-edgeXs(idx); ...
+                   edgeYs(mod(idx,n)+1)-edgeYs(idx)] / edgeLen;
+    
+    currentVertex = [edgeXs(idx); edgeYs(idx)];
+    edgeLenOffset = 0; % offset along the original edge
+    while (edgeLenOffset < edgeLen)
+      if (distanceRemaining > 0)
+        if (distanceRemaining < edgeLen)
+          edgeLenOffset = distanceRemaining;
+          newEdges = [newEdges currentVertex + edgeLenOffset * edgeUnitVec];
+          fixedPoints = [fixedPoints; false];
+          distanceRemaining = 0;
+        else
+          edgeLenOffset = edgeLen;
+          distanceRemaining = distanceRemaining - edgeLen;
+          break;
+        endif
+      endif
+      if (edgeLenOffset + edgUnit < edgeLen)
+        edgeLenOffset = edgeLenOffset + edgUnit;   
         newEdges = [newEdges currentVertex + edgeLenOffset * edgeUnitVec];
-        distanceRemaining = 0;
+        fixedPoints = [fixedPoints; false];
       else
-        edgeLenOffset = edgeLen;
-        distanceRemaining = distanceRemaining - edgeLen;
+        distanceRemaining = edgeLenOffset + edgUnit - edgeLen;
         break;
       endif
-    endif
-    if (edgeLenOffset + edgUnit < edgeLen)
-      edgeLenOffset = edgeLenOffset + edgUnit;   
-      newEdges = [newEdges currentVertex + edgeLenOffset * edgeUnitVec];
-    else
-      distanceRemaining = edgeLenOffset + edgUnit - edgeLen;
-      break;
-    endif
-  endwhile
+    endwhile
+  endfor
 endfor
 
 %debugging
 edgUnit
 maxDeviation = max(abs(sqrt(sum(diff(newEdges,1,2).^2,1))-edgUnit))
+maxEdgeLen = max(sqrt(sum(diff(newEdges,1,2).^2,1)))
+minEdgeLen = min(sqrt(sum(diff(newEdges,1,2).^2,1)))
 
 % ----- Run Taubin smoothing, but fixing vertices likely to be corners -----
 
 lambda = 0.5;
 mu = -0.51;
 n = size(newEdges, 2);
-
-fixedPoints = ...
-  sum(([newEdges(:,2:end) newEdges(:,1)] - newEdges) .* ...
-      ([newEdges(:,end) newEdges(:,1:end-1)] - newEdges), 1) > ...
-      sqrt(sum(([newEdges(:,2:end) newEdges(:,1)] - newEdges).^2, 1)) .* ...
-      sqrt(sum(([newEdges(:,end) newEdges(:,1:end-1)] - newEdges).^2, 1)) * ...
-      (-0.8); % angle must be more acute than arccos(-0.8) ~= 143 degrees
-
 coeffs = [lambda; mu];
 for iter = 1:100
   convolvedEdges = (1/3)*newEdges + ...
@@ -254,6 +286,15 @@ for iter = 1:100
   coeff = coeffs(mod(iter-1,2)+1);
   newEdges(:,~fixedPoints) = newEdges(:,~fixedPoints) + coeff * displacements(:,~fixedPoints);
 endfor
+
+%debugging
+disp('after smoothing')
+edgUnit
+maxDeviation = max(abs(sqrt(sum(diff(newEdges,1,2).^2,1))-edgUnit))
+maxEdgeLen = max(sqrt(sum(diff(newEdges,1,2).^2,1)))
+minEdgeLen = min(sqrt(sum(diff(newEdges,1,2).^2,1)))
+
+fixedPointIndices = find(fixedPoints)
 
 % Display the plot
 imshow(Image);
