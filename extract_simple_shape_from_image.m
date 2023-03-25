@@ -2,10 +2,10 @@ clear all
 close all
 clc
 
-ppmm = 11.811; % pixels per mm
+ppmm = 20;%39.8630; % pixels per mm
 epsilon = 0.05;
 
-Image = imread('mod6.bmp');
+Image = imread('mug_profile2.bmp');
 dy1 = [diff(Image, 1, 1); zeros(1, size(Image,2))];
 dy2 = [dy1(:,2:end) zeros(size(Image,1), 1)];
 dx1 = [diff(Image, 1, 2) zeros(size(Image,1), 1)];
@@ -294,12 +294,75 @@ maxDeviation = max(abs(sqrt(sum(diff(newEdges,1,2).^2,1))-edgUnit))
 maxEdgeLen = max(sqrt(sum(diff(newEdges,1,2).^2,1)))
 minEdgeLen = min(sqrt(sum(diff(newEdges,1,2).^2,1)))
 
+% Simplify edges likely to be straight lines
+run_distance = 30;
+straight_line_squared_tolerance = 0.05;
+forward_diffs = (circshift(newEdges, [0,-run_distance]) - newEdges) / run_distance;
+newEdgesExt = [newEdges newEdges(:,1:run_distance)];
+isLineMask = zeros(1, size(newEdges,2), 'logical');
+for i=1:size(newEdges,2)
+  predicted = repmat(newEdges(:,i), 1, run_distance-1) + forward_diffs(:,i)*(1:1:run_distance-1);
+  actual = newEdgesExt(:,i+1:i+run_distance-1);
+  diffssq = sum((actual-predicted).^2,1);
+  if (all(diffssq < straight_line_squared_tolerance))
+    %isLineMask(i+1:i+run_distance-1) = true;
+    isLineMask(i+1) = true;   
+  endif
+endfor
+for i=size(newEdges,2)+1:-1:run_distance
+  if (isLineMask(i+1-run_distance) && ~isLineMask(i+2-run_distance))
+    isLineMask(i+1-run_distance:i-1) = true;
+    if (i <= size(newEdges,2))
+      isLineMask(i) = false;
+    endif
+  endif
+endfor
+for i=1:size(newEdges,2)
+  if (fixedPoints(i))
+    isLineMask(mod(i+1,numel(isLineMask))+1) = true;
+    isLineMask(mod(i,numel(isLineMask))+1) = true;
+    isLineMask(i) = false;
+    isLineMask(mod(i+numel(isLineMask)-2,numel(isLineMask))+1) = true;
+    isLineMask(mod(i+numel(isLineMask)-3,numel(isLineMask))+1) = true;
+  endif
+endfor
+isLineMask
+
+detected_line_starts = [];
+detected_line_ends = [];
+transitions = diff([isLineMask isLineMask(1)]);
+transitions = [transitions transitions(1:run_distance+2)];
+for i=1:numel(isLineMask)-1
+  if (transitions(i) > 0 && all(transitions(i+1:i+run_distance-1)==0))
+    detected_line_starts = [detected_line_starts; i+1];
+  endif
+  if (transitions(i+run_distance) < 0 && all(transitions(i+1:i+run_distance-1)==0))
+    detected_line_ends = [detected_line_ends; i+run_distance];
+  endif
+endfor
+if (numel(detected_line_ends) < numel(detected_line_starts))
+  detected_line_ends = [detected_line_ends; numel(isLineMask)];
+endif
+
+detected_line_starts
+detected_line_ends
+
+isLineMask = zeros(1, size(newEdges,2), 'logical'); 
+for i=1:numel(detected_line_starts)
+  isLineMask(detected_line_starts(i):detected_line_ends(i)) = true;
+endfor
+
+newEdges(:,isLineMask) = [];
+fixedPoints(isLineMask) = [];
+
 fixedPointIndices = find(fixedPoints)
+
 
 % Display the plot
 imshow(Image);
 hold on
 plot([newEdges(1,:) newEdges(1,1)] + 0.5, [newEdges(2,:) newEdges(2,1)] + 0.5, 'r-', 'linewidth', 2);
 plot(newEdges(1,fixedPoints) + 0.5, newEdges(2,fixedPoints) + 0.5, 'bo', 'markersize', 10);
+plot(newEdges(1,:) + 0.5, newEdges(2,:) + 0.5, 'g+', 'markersize', 2);
 
-csvwrite('border_polygon.csv', newEdges' / ppmm);
+csvwrite('mug_border_polygon.csv', newEdges' / ppmm);
